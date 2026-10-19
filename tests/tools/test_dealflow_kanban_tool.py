@@ -218,6 +218,19 @@ class DealflowKanbanToolTest(unittest.TestCase):
             self.assertFalse(result["success"])
             self.assertFalse(result["checks"]["git_diff_check"])
 
+    def test_audit_only_no_change_run_validates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            worktree, log, _, _ = make_repo(Path(tmp))
+            run(["git", "restore", str(tool.KANBAN_REL)], cwd=worktree)
+            text = audit_text("2026-10-17T11:42:45.752058Z")
+            text = text.replace("additions_count: 1", "additions_count: 0")
+            text = text.replace('  additions:\n    - "Acme: Screening"', "  additions: []")
+            text = text.replace("  - DealFlow/DSV_Deals_Kanban.md\n", "")
+            log.write_text(text, encoding="utf-8")
+            result = tool._validate(worktree, log)
+            self.assertTrue(result["success"], result["errors"])
+            self.assertEqual(result["changed_paths"], ["DealFlow/sync_logs/20261019_nightly_sync.log"])
+
     def test_handler_pins_repository_origin_and_audit_filename(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
