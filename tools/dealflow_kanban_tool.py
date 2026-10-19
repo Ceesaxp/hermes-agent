@@ -360,6 +360,7 @@ def _validate_audit(
     checkpoint: str,
     parsed: Dict[str, Any],
     audit_rel: str,
+    changed_paths: Sequence[str],
 ) -> Dict[str, Any]:
     errors: List[str] = []
     checks: Dict[str, Any] = {}
@@ -462,9 +463,12 @@ def _validate_audit(
     checks["addition_rows_read_back"] = additions_read_back
 
     files_changed = audit.get("files_changed") or []
-    expected_files = {str(KANBAN_REL), audit_rel}
+    expected_files = set(changed_paths)
     if set(map(str, files_changed)) != expected_files:
         errors.append(f"Audit files_changed must be exactly {sorted(expected_files)}")
+
+    if str(KANBAN_REL) not in expected_files and any(expected_counts.values()):
+        errors.append("Audit-only runs must report zero stage, metadata, addition, and disappearance counts")
 
     pagination = audit.get("pagination") or {}
     collected = pagination.get("collected_count")
@@ -550,6 +554,15 @@ def _validate(worktree: Path, audit_log: Path) -> Dict[str, Any]:
     checks["unique_company_placement"] = not parsed["duplicates"]
 
     audit_rel = str(audit_log.relative_to(worktree))
+    changed_paths = _git_changed_paths(worktree)
+    allowed_changed_path_sets = (
+        [audit_rel],
+        sorted([str(KANBAN_REL), audit_rel]),
+    )
+    if changed_paths not in allowed_changed_path_sets:
+        errors.append(
+            f"Changed paths must be audit-only or Kanban plus audit log; got {changed_paths}"
+        )
     audit = _load_audit(audit_log)
     run_id = str(audit.get("run_id") or "")
     if not re.fullmatch(r"\d{8}T\d{6}Z", run_id):
@@ -561,19 +574,16 @@ def _validate(worktree: Path, audit_log: Path) -> Dict[str, Any]:
         checkpoint=checkpoint,
         parsed=parsed,
         audit_rel=audit_rel,
+        changed_paths=changed_paths,
     )
     errors.extend(audit_result["errors"])
     checks.update(audit_result["checks"])
 
-    diff_ok, diff_detail = _git_diff_check_exact(worktree, [str(KANBAN_REL), audit_rel])
+    diff_ok, diff_detail = _git_diff_check_exact(worktree, changed_paths)
     checks["git_diff_check"] = diff_ok
     if not diff_ok:
         errors.append(f"git diff --cached --check failed: {diff_detail}")
 
-    changed_paths = _git_changed_paths(worktree)
-    expected_paths = sorted([str(KANBAN_REL), audit_rel])
-    if changed_paths != expected_paths:
-        errors.append(f"Changed paths must be exactly {expected_paths}; got {changed_paths}")
 
     for key in REQUIRED_VALIDATION_KEYS:
         if checks.get(key) is not True:
@@ -789,7 +799,7 @@ def _publish(
 
     commit = _commit_exact(
         worktree,
-        [str(KANBAN_REL), audit_rel],
+        before["changed_paths"],
         commit_message.strip(),
     )
     kanban_blob = _git(["rev-parse", f"{commit}:{KANBAN_REL}"], cwd=worktree).stdout.strip()
