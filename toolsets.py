@@ -116,6 +116,10 @@ TOOLSETS = {
         "trigger scheduled tasks",
         ["cronjob_manage"],
     ),
+    "dealflow_kanban": _ts(
+        "Deterministic validation and publication for the DSV Dealflow-to-Kanban sync",
+        ["dealflow_kanban"],
+    ),
     "file": _ts(
         "File manipulation tools: read, write, patch (with fuzzy matching), and "
         "search (content + files)",
