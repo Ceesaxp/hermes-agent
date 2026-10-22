@@ -826,6 +826,41 @@ def _publish(
     return _finalize_prepared_receipt(worktree, receipt_path, receipt)
 
 
+def _company_inventory(worktree: Path) -> Dict[str, Any]:
+    """Discover actual paths once; absence is data, never a guessed file read.
+
+    Return every Overview (not a search tool's truncated first 50 matches).
+    IDs are literal source values; names/folders are candidates, not alias proof.
+    No writes, external calls, or automatic onboarding are performed.
+    """
+    companies = []
+    for path in sorted((worktree / "Companies").glob("*/Overview.md")):
+        if not _within(path, worktree):
+            raise ValidationError(f"Company Overview escapes worktree: {path}")
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        metadata: Dict[str, Any] = {}
+        if text.startswith("---\n"):
+            try:
+                metadata, _, _ = _split_frontmatter(text)
+            except ValidationError as exc:
+                raise ValidationError(f"{path.relative_to(worktree)}: {exc}") from exc
+        ids = metadata["dealflow"] if "dealflow" in metadata else {}
+        if not isinstance(ids, dict):
+            raise ValidationError(f"Invalid dealflow mapping: {path.relative_to(worktree)}")
+        companies.append({
+            "path": str(path.relative_to(worktree)),
+            "folder": path.parent.name,
+            "name": metadata.get("company") or metadata.get("title") or path.parent.name,
+            "company_id": ids.get("company_id"),
+            "deal_id": ids.get("deal_id"),
+        })
+    return {"success": True, "action": "company_inventory", "complete": True,
+            "company_count": len(companies), "companies": companies,
+            "missing_company_policy": "Do not guess or read absent paths. Unmapped deals block publication and checkpoint advancement; report onboarding required. Never create Overview files in this two-artifact sync."}
+
+
 def dealflow_kanban(
     action: str,
     worktree_path: Optional[str] = None,
@@ -842,6 +877,7 @@ def dealflow_kanban(
                     "success": True,
                     "action": "run_spec",
                     "workflow": [
+                        "After preparing the fetched worktree, call company_inventory once before any company file reads. Use only returned literal paths; missing companies require onboarding, not guessed read_file probes or checkpoint advancement.",
                         "Use Dealflow MCP read tools for whoami, vocabularies, pagination, and get_deal evidence.",
                         "The agent may resolve semantic aliases and prepare only the Kanban and dated audit-log edits in a state-root worktree.",
                         "Call dealflow_kanban action=validate with the exact worktree and audit-log paths.",
@@ -854,9 +890,11 @@ def dealflow_kanban(
                 }
             )
 
-        if action not in {"validate", "publish"}:
-            return _error("Unknown action", allowed_actions=["run_spec", "validate", "publish"])
+        if action not in {"company_inventory", "validate", "publish"}:
+            return _error("Unknown action", allowed_actions=["run_spec", "company_inventory", "validate", "publish"])
         worktree = _resolve_worktree(worktree_path or "")
+        if action == "company_inventory":
+            return _json(_company_inventory(worktree))
         audit_log = _resolve_audit_log(worktree, audit_log_path)
         if action == "validate":
             return _json(_validate(worktree, audit_log))
@@ -889,7 +927,7 @@ DEALFLOW_KANBAN_SCHEMA = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["run_spec", "validate", "publish"],
+                "enum": ["run_spec", "company_inventory", "validate", "publish"],
                 "description": "Deterministic operation to run.",
             },
             "worktree_path": {

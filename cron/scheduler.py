@@ -1541,6 +1541,10 @@ def _run_no_agent_job(
         )
         return False, f"{header}**Status:** script failed\n\n{output}\n", alert, output
 
+    declared_failure = _cron_failure_marker_error(output)
+    if declared_failure is not None:
+        return False, f"{header}**Status:** script declared failure\n\n{output}\n", output, declared_failure
+
     # wakeAgent=false is a silent signal, same as empty stdout.
     if not _parse_wake_gate(output):
         logger.info("Job '%s' (no_agent): wakeAgent=false gate — silent run", job_id)
@@ -2063,6 +2067,12 @@ def _final_response_from_result(result: dict, job_id: str, job_name: str, AIAgen
     # Raise so the except handler below builds the proper failure tuple. (issue #17855)
     turn_exit_reason = str(result.get("turn_exit_reason") or "")
     final_response_text = (result.get("final_response") or "").strip()
+    guardrail = result.get("guardrail")
+    guardrail = guardrail if isinstance(guardrail, dict) else {}
+    if (turn_exit_reason.startswith("guardrail_halt") or
+            guardrail.get("action") in {"halt", "block"}):
+        raise RuntimeError("Cron guardrail stopped execution: " +
+                           (final_response_text or str(guardrail.get("code") or turn_exit_reason)))
     max_iteration_summary = is_max_iteration_handoff(result)
     if result.get("failed") is True or (result.get("completed") is False and not max_iteration_summary):
         raise RuntimeError(result.get("error") or final_response_text or "agent reported failure")
