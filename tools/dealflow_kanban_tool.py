@@ -19,9 +19,10 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-import yaml
+from ruamel.yaml.error import YAMLError
 
 from tools.registry import registry
+from utils import fast_safe_load
 
 REPO_PATH = Path("/home/andrei/Research_Bench")
 STATE_ROOT = Path("/home/andrei/.hermes/state/dealflow_kanban_sync")
@@ -207,8 +208,8 @@ def _split_frontmatter(text: str) -> Tuple[Dict[str, Any], str, str]:
         raise ValidationError("Kanban frontmatter has no closing delimiter") from exc
     raw = "\n".join(lines[1:end])
     try:
-        data = yaml.safe_load(raw)
-    except yaml.YAMLError as exc:
+        data = fast_safe_load(raw)
+    except YAMLError as exc:
         raise ValidationError(f"Invalid Kanban YAML frontmatter: {exc}") from exc
     if not isinstance(data, dict):
         raise ValidationError("Kanban frontmatter must be a mapping")
@@ -326,8 +327,8 @@ def _parse_company_tables(body: str, worktree: Path, allowed_stages: Sequence[st
 
 def _load_audit(path: Path) -> Dict[str, Any]:
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
+        data = fast_safe_load(path.read_text(encoding="utf-8"))
+    except YAMLError as exc:
         raise ValidationError(f"Invalid audit-log YAML: {exc}") from exc
     if not isinstance(data, dict):
         raise ValidationError("Audit log must be a YAML mapping")
